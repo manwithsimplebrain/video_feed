@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(cat:*)",
+      "WebSearch",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:www.fastpix.io)",
+      "WebFetch(domain:www.mux.com)",
+      "WebFetch(domain:honesdev.com)",
+      "WebFetch(domain:android-developers.googleblog.com)",
+      "WebFetch(domain:proandroiddev.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:bunny.net)",
+      "WebFetch(domain:pub.dev)",
+      "Bash(flutter pub get:*)",
+      "Bash(flutter analyze:*)"
+    ]
+  }
+}
