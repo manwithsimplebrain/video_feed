@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:preload_page_view/preload_page_view.dart' hide PageScrollPhysics;
@@ -80,6 +82,7 @@ class _VideoFeedViewState extends State<VideoFeedView>
   late final PreloadManager _preloadManager;
   late final FastScrollDetector _fastScrollDetector;
   late final PreloadPageController _pageController;
+  StreamSubscription? _disposalSubscription;
 
   List<BaseVideoItem> _videos = [];
   int _currentPage = 0;
@@ -117,6 +120,23 @@ class _VideoFeedViewState extends State<VideoFeedView>
 
     // Initialize first video
     _initializeFirstVideo();
+
+    // Listen for controller disposals to update UI
+    _disposalSubscription = _controllerPool.onControllerDisposed.listen((id) {
+      if (!mounted) return;
+      
+      // Only rebuild if the disposed video is currently visible/preloaded
+      // (approximate check: is it within ±1 or ±2 of current page?)
+      // A safe, simple approach is to just rebuild if we find it in the window.
+      // But to be 100% safe against the crash, we should just setState if ANY
+      // relevant video is disposed used by the view.
+      
+      final inWindow = _preloadManager.getVideoById(id);
+      if (inWindow != null) {
+        // Force rebuild to remove disposed controller reference
+         setState(() {});
+      }
+    });
   }
 
   Future<void> _initializeFirstVideo() async {
@@ -213,6 +233,7 @@ class _VideoFeedViewState extends State<VideoFeedView>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _disposalSubscription?.cancel();
     _pageController.dispose();
     _controllerPool.dispose();
     super.dispose();

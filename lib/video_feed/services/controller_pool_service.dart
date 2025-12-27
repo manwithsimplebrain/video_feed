@@ -30,8 +30,14 @@ class ControllerPoolService {
   /// Stream controller for notifying when controllers become ready.
   final _onControllerReady = StreamController<String>.broadcast();
 
+  /// Stream controller for notifying when controllers are disposed.
+  final _onControllerDisposed = StreamController<String>.broadcast();
+
   /// Stream of video IDs when their controllers become ready.
   Stream<String> get onControllerReady => _onControllerReady.stream;
+
+  /// Stream of video IDs when their controllers are disposed.
+  Stream<String> get onControllerDisposed => _onControllerDisposed.stream;
 
   /// Get controller if available and initialized.
   VideoPlayerController? getController(String videoId) {
@@ -116,6 +122,7 @@ class ControllerPoolService {
 
     try {
       _pool.remove(videoId);
+      _onControllerDisposed.add(videoId);
       await entry.dispose();
     } catch (e) {
       debugPrint('ControllerPool: Error disposing $videoId: $e');
@@ -186,6 +193,7 @@ class ControllerPoolService {
   /// Dispose all and clean up.
   Future<void> dispose() async {
     await _onControllerReady.close();
+    await _onControllerDisposed.close();
 
     final ids = List<String>.from(_pool.keys);
     for (final id in ids) {
