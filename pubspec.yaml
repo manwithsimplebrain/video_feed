@@ -36,7 +36,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   flutter_video_caching: ^0.4.6
   preload_page_view: ^0.2.0
-  video_player: ^2.10.1
+  awesome_video_player: ^1.0.5
   flutter_cache_manager: ^3.4.1
   visibility_detector: ^0.4.0+2
 

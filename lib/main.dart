@@ -1,13 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:tiktok/video_feed/video_feed.dart';
+import 'package:tiktok/tiktok_video.dart';
 import 'package:tiktok/video_item.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Initialize video caching system
-  await VideoCacheService.initialize(const VideoFeedConfig());
-
   runApp(const MyApp());
 }
 
@@ -26,7 +22,12 @@ class MyApp extends StatelessWidget {
   }
 }
 
-/// Demo screen showing the new VideoFeedView with caching.
+/// Simple implementation of BaseVideoItem
+class SimpleVideoItem extends BaseVideoItem {
+  const SimpleVideoItem({required super.id, required super.videoUrl});
+}
+
+/// Demo screen showing the VideoFeedView with caching.
 class DemoVideoFeedView extends StatefulWidget {
   const DemoVideoFeedView({super.key});
 
@@ -35,85 +36,85 @@ class DemoVideoFeedView extends StatefulWidget {
 }
 
 class _DemoVideoFeedViewState extends State<DemoVideoFeedView> {
-  static final List<BaseVideoItem> _allSampleVideos = [
-    const BaseVideoItem(
+  static final List<SimpleVideoItem> _allSampleVideos = [
+    const SimpleVideoItem(
       id: 'v1_short',
       videoUrl:
-          'https://flutter.github.io/assets-for-api-docs/assets/videos/butterfly.mp4',
+          'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
     ),
-    const BaseVideoItem(
+    const SimpleVideoItem(
       id: 'v2_short',
       videoUrl:
-          'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+          'https://vz-cea98c59-23c.b-cdn.net/c309129c-27b6-4e43-8254-62a15c77c5ee/playlist.m3u8?v=1683126052',
     ),
-    const BaseVideoItem(
+    const SimpleVideoItem(
       id: 'v3_short',
       videoUrl:
           'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
     ),
-    const BaseVideoItem(
+    const SimpleVideoItem(
       id: 'v4_short',
       videoUrl:
           'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4',
     ),
-    const BaseVideoItem(
+    const SimpleVideoItem(
       id: 'v5_fun',
       videoUrl:
           'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
     ),
-    const BaseVideoItem(
+    const SimpleVideoItem(
       id: 'v6_escapes',
       videoUrl:
           'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
     ),
-    const BaseVideoItem(
+    const SimpleVideoItem(
       id: 'v7_elephants',
       videoUrl:
           'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
     ),
-    const BaseVideoItem(
+    const SimpleVideoItem(
       id: 'v8_bullrun',
       videoUrl:
           'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4',
     ),
-    const BaseVideoItem(
+    const SimpleVideoItem(
       id: 'v9_sintel',
       videoUrl:
           'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4',
     ),
-    const BaseVideoItem(
+    const SimpleVideoItem(
       id: 'v10_tears',
       videoUrl:
           'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
     ),
-    const BaseVideoItem(
+    const SimpleVideoItem(
       id: 'v11_volcano',
       videoUrl:
           'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/VolkswagenGTIReview.mp4',
     ),
-    const BaseVideoItem(
+    const SimpleVideoItem(
       id: 'v12_subaru',
       videoUrl:
           'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4',
     ),
-    const BaseVideoItem(
+    const SimpleVideoItem(
       id: 'v13_whatcar',
       videoUrl:
           'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WhatCarCanYouGetForAGrand.mp4',
     ),
-    const BaseVideoItem(
+    const SimpleVideoItem(
       id: 'v14_butterfly2',
       videoUrl:
           'https://flutter.github.io/assets-for-api-docs/assets/videos/butterfly.mp4',
     ),
-    const BaseVideoItem(
+    const SimpleVideoItem(
       id: 'v15_final',
       videoUrl:
           'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
     ),
   ];
 
-  late final List<BaseVideoItem> _currentVideos = _allSampleVideos.take(6).toList();
+  late final List<SimpleVideoItem> _currentVideos = _allSampleVideos.take(6).toList();
   int _loadedCount = 6;
   bool _isLoadingMore = false;
 
@@ -126,12 +127,9 @@ class _DemoVideoFeedViewState extends State<DemoVideoFeedView> {
           children: [
             VideoFeedView(
               videos: _currentVideos,
-              config: const VideoFeedConfig(
-                controllerPoolSize: 5,
-                preloadAhead: 5,
-                preloadBehind: 1,
-              ),
-              overlayBuilder: (context, item, controller) {
+              maxControllerCache: 3, // prev + current + next
+              preloadAhead: 1,
+              overlayBuilder: (context, item) {
                 final index = _currentVideos.indexWhere((v) => v.id == item.id);
                 return Align(
                   alignment: Alignment.bottomLeft,

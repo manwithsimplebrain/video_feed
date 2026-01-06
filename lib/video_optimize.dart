@@ -1,10 +1,10 @@
+import 'package:awesome_video_player/awesome_video_player.dart';
 import 'package:flutter/material.dart';
-import 'package:video_player/video_player.dart';
 
 class VideoFeedViewOptimizedVideoPlayer extends StatefulWidget {
   const VideoFeedViewOptimizedVideoPlayer({required this.controller, required this.videoId, super.key});
 
-  final VideoPlayerController? controller;
+  final BetterPlayerController? controller;
   final String videoId;
 
   @override
@@ -14,7 +14,7 @@ class VideoFeedViewOptimizedVideoPlayer extends StatefulWidget {
 class _VideoFeedViewOptimizedVideoPlayerState extends State<VideoFeedViewOptimizedVideoPlayer> with SingleTickerProviderStateMixin {
   late AnimationController _loadingController;
   bool _isBuffering = false;
-  VideoPlayerController? _oldController;
+  BetterPlayerController? _oldController;
   String? _currentVideoId;
   bool _isPlaying = false;
   Key _playerKey = UniqueKey();
@@ -29,10 +29,23 @@ class _VideoFeedViewOptimizedVideoPlayerState extends State<VideoFeedViewOptimiz
   }
 
   void _addControllerListener() {
-    if (widget.controller != null) {
-      _isBuffering = widget.controller!.value.isBuffering;
-      _isPlaying = widget.controller!.value.isPlaying;
-      widget.controller!.addListener(_onControllerUpdate);
+    try {
+      final videoController = widget.controller?.videoPlayerController;
+      if (videoController != null) {
+        _isBuffering = videoController.value.isBuffering;
+        _isPlaying = videoController.value.isPlaying;
+        videoController.addListener(_onControllerUpdate);
+      }
+    } catch (e) {
+      debugPrint('Error adding controller listener: $e');
+    }
+  }
+
+  void _removeControllerListener(BetterPlayerController? controller) {
+    try {
+      controller?.videoPlayerController?.removeListener(_onControllerUpdate);
+    } catch (e) {
+      // Controller may be disposed, ignore
     }
   }
 
@@ -44,14 +57,20 @@ class _VideoFeedViewOptimizedVideoPlayerState extends State<VideoFeedViewOptimiz
     final bool controllerChanged = widget.controller != _oldController;
 
     if (videoIdChanged || controllerChanged) {
-      _oldController?.removeListener(_onControllerUpdate);
+      _removeControllerListener(_oldController);
       _oldController = widget.controller;
       _currentVideoId = widget.videoId;
       _playerKey = UniqueKey();
       _addControllerListener();
 
       // Schedule the setState for the next frame to avoid build errors
-      final bool shouldUpdateBuffering = widget.controller?.value.isBuffering ?? false;
+      bool shouldUpdateBuffering = false;
+      try {
+        shouldUpdateBuffering = widget.controller?.videoPlayerController?.value.isBuffering ?? false;
+      } catch (e) {
+        // Controller may be disposed
+      }
+
       if (mounted && _isBuffering != shouldUpdateBuffering) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
@@ -67,7 +86,7 @@ class _VideoFeedViewOptimizedVideoPlayerState extends State<VideoFeedViewOptimiz
   @override
   void dispose() {
     _loadingController.dispose();
-    _oldController?.removeListener(_onControllerUpdate);
+    _removeControllerListener(_oldController);
     _oldController = null;
     super.dispose();
   }
@@ -75,44 +94,48 @@ class _VideoFeedViewOptimizedVideoPlayerState extends State<VideoFeedViewOptimiz
   void _onControllerUpdate() {
     if (!mounted) return;
 
-    final controller = widget.controller;
-    if (controller == null) return;
+    try {
+      final videoController = widget.controller?.videoPlayerController;
+      if (videoController == null) return;
 
-    if (widget.videoId != _currentVideoId) return;
+      if (widget.videoId != _currentVideoId) return;
 
-    // Check if controller is disposed or in error state
-    if (controller.value.hasError) {
-      // Schedule UI update for next frame to avoid build conflicts
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) setState(() => _isBuffering = false);
-      });
-      return;
-    }
+      // Check if controller is disposed or in error state
+      if (videoController.value.hasError) {
+        // Schedule UI update for next frame to avoid build conflicts
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) setState(() => _isBuffering = false);
+        });
+        return;
+      }
 
-    final isBuffering = controller.value.isBuffering;
-    final isPlaying = controller.value.isPlaying;
+      final isBuffering = videoController.value.isBuffering;
+      final isPlaying = videoController.value.isPlaying;
 
-    // Hide buffering indicator if:
-    // 1. Video is actually playing and has advanced
-    // 2. Video has loaded content (position > 0)
-    // 3. Video duration is known and valid
-    bool shouldShowBuffering = isBuffering;
-    if ((isPlaying && controller.value.position > Duration.zero) ||
-        (controller.value.position > Duration.zero && controller.value.duration.inMilliseconds > 0)) {
-      shouldShowBuffering = false;
-    }
+      // Hide buffering indicator if:
+      // 1. Video is actually playing and has advanced
+      // 2. Video has loaded content (position > 0)
+      // 3. Video duration is known and valid
+      bool shouldShowBuffering = isBuffering;
+      if ((isPlaying && videoController.value.position > Duration.zero) ||
+          (videoController.value.position > Duration.zero && (videoController.value.duration?.inMilliseconds ?? 0) > 0)) {
+        shouldShowBuffering = false;
+      }
 
-    // Only update state if something changed
-    if (_isBuffering != shouldShowBuffering || _isPlaying != isPlaying) {
-      // Use post-frame callback to avoid setState during build
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          setState(() {
-            _isBuffering = shouldShowBuffering;
-            _isPlaying = isPlaying;
-          });
-        }
-      });
+      // Only update state if something changed
+      if (_isBuffering != shouldShowBuffering || _isPlaying != isPlaying) {
+        // Use post-frame callback to avoid setState during build
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            setState(() {
+              _isBuffering = shouldShowBuffering;
+              _isPlaying = isPlaying;
+            });
+          }
+        });
+      }
+    } catch (e) {
+      // Controller may be disposed, ignore
     }
   }
 
@@ -120,7 +143,14 @@ class _VideoFeedViewOptimizedVideoPlayerState extends State<VideoFeedViewOptimiz
   Widget build(BuildContext context) {
     final controller = widget.controller;
 
-    if (controller == null || !controller.value.isInitialized) {
+    bool isInitialized = false;
+    try {
+      isInitialized = controller?.videoPlayerController?.value.initialized ?? false;
+    } catch (e) {
+      isInitialized = false;
+    }
+
+    if (controller == null || !isInitialized) {
       return Center(
         child: RotationTransition(
           turns: Tween<double>(begin: 0, end: 1).animate(_loadingController),
@@ -129,51 +159,36 @@ class _VideoFeedViewOptimizedVideoPlayerState extends State<VideoFeedViewOptimiz
       );
     }
 
+    final videoController = controller.videoPlayerController;
+
     return GestureDetector(
       onTap: () {
-        // Schedule state updates for the next frame to avoid build errors
-        if (controller.value.isPlaying) {
-          controller
-              .pause()
-              .then((_) {
-                if (mounted) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (mounted) setState(() {});
-                  });
-                }
-              })
-              .catchError((Object e) {
-                debugPrint('Error pausing video: $e');
-              });
-        } else {
-          controller
-              .play()
-              .then((_) {
-                if (mounted) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (mounted) setState(() {});
-                  });
-                }
-              })
-              .catchError((Object e) {
-                debugPrint('Error playing video: $e');
-              });
+        try {
+          if (controller.isPlaying() ?? false) {
+            controller.pause();
+          } else {
+            controller.play();
+          }
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) setState(() {});
+          });
+        } catch (e) {
+          debugPrint('Error toggling playback: $e');
         }
       },
       child: Center(
         child: AspectRatio(
-          // Cố định tỷ lệ 16:9 như yêu cầu
-          aspectRatio: 16 / 9,
+          aspectRatio: 9 / 16,
           child: Stack(
             fit: StackFit.expand,
             children: [
               FittedBox(
                 key: _playerKey,
-                fit: BoxFit.contain, // Không crop, giữ nguyên toàn bộ khung hình
+                fit: BoxFit.contain,
                 child: SizedBox(
-                  width: controller.value.size.width,
-                  height: controller.value.size.height,
-                  child: VideoPlayer(controller),
+                  width: videoController?.value.size?.width ?? 1920,
+                  height: videoController?.value.size?.height ?? 1080,
+                  child: BetterPlayer(controller: controller),
                 ),
               ),
               if (_isBuffering)
