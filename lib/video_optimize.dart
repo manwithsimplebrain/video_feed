@@ -2,10 +2,16 @@ import 'package:awesome_video_player/awesome_video_player.dart';
 import 'package:flutter/material.dart';
 
 class VideoFeedViewOptimizedVideoPlayer extends StatefulWidget {
-  const VideoFeedViewOptimizedVideoPlayer({required this.controller, required this.videoId, super.key});
+  const VideoFeedViewOptimizedVideoPlayer({
+    required this.controller,
+    required this.videoId,
+    this.onEnterFullscreen,
+    super.key,
+  });
 
   final BetterPlayerController? controller;
   final String videoId;
+  final VoidCallback? onEnterFullscreen;
 
   @override
   State<VideoFeedViewOptimizedVideoPlayer> createState() => _VideoFeedViewOptimizedVideoPlayerState();
@@ -176,28 +182,76 @@ class _VideoFeedViewOptimizedVideoPlayerState extends State<VideoFeedViewOptimiz
           debugPrint('Error toggling playback: $e');
         }
       },
-      child: Center(
-        child: AspectRatio(
-          aspectRatio: 9 / 16,
-          child: Stack(
-            fit: StackFit.expand,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Calculate video dimensions to fit in container
+          final containerWidth = constraints.maxWidth;
+          final containerHeight = constraints.maxHeight;
+          final videoAspectRatio = controller.videoPlayerController?.value.aspectRatio ?? 9.0/16.0;
+
+          double videoWidth;
+          double videoHeight;
+
+          if (containerWidth / containerHeight > videoAspectRatio) {
+            // Container is wider - fit by height
+            videoHeight = containerHeight;
+            videoWidth = videoHeight * videoAspectRatio;
+          } else {
+            // Container is taller - fit by width
+            videoWidth = containerWidth;
+            videoHeight = videoWidth / videoAspectRatio;
+          }
+
+          // Calculate vertical offset to center video
+          final verticalOffset = (containerHeight - videoHeight) / 2;
+          final buttonTop = verticalOffset + videoHeight;
+
+          return Stack(
             children: [
-              FittedBox(
-                key: _playerKey,
-                fit: BoxFit.contain,
+              // Video centered
+              Center(
                 child: SizedBox(
-                  width: videoController?.value.size?.width ?? 1920,
-                  height: videoController?.value.size?.height ?? 1080,
-                  child: BetterPlayer(controller: controller),
+                  width: videoWidth,
+                  height: videoHeight,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      FittedBox(
+                        key: _playerKey,
+                        fit: BoxFit.contain,
+                        child: SizedBox(
+                          width: videoController?.value.size?.width ?? 1920,
+                          height: videoController?.value.size?.height ?? 1080,
+                          child: BetterPlayer(controller: controller),
+                        ),
+                      ),
+                      if (_isBuffering)
+                        const Center(
+                          child: CircularProgressIndicator(),
+                        ),
+                    ],
+                  ),
                 ),
               ),
-              if (_isBuffering)
-                const Center(
-                  child: CircularProgressIndicator(),
+              // Fullscreen button positioned right below video
+              Positioned(
+                top: buttonTop,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: IconButton(
+                    onPressed: widget.onEnterFullscreen,
+                    icon: const Icon(
+                      Icons.fullscreen,
+                      color: Colors.white,
+                      size: 32,
+                    ),
+                  ),
                 ),
+              ),
             ],
-          ),
-        ),
+          );
+        },
       ),
     );
   }

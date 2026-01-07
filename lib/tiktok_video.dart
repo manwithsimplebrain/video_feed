@@ -5,7 +5,7 @@ import 'package:preload_page_view/preload_page_view.dart';
 import 'package:tiktok/video_item.dart';
 import 'package:tiktok/video_optimize.dart';
 
-class VideoFeedView extends StatefulWidget {
+class VideoFeedView<T extends BaseVideoItem> extends StatefulWidget {
   const VideoFeedView({
     super.key,
     required this.videos,
@@ -15,23 +15,25 @@ class VideoFeedView extends StatefulWidget {
     this.maxControllerCache = 3,
     this.preloadAhead = 1,
     this.physics = const AlwaysScrollableScrollPhysics(),
+    this.onEnterFullscreen,
   });
 
-  final List<BaseVideoItem> videos;
-  final Widget Function(BuildContext context, BaseVideoItem item) overlayBuilder;
+  final List<T> videos;
+  final Widget Function(BuildContext context, T item) overlayBuilder;
   final ValueChanged<int>? onPageChanged;
-  final Future<List<BaseVideoItem>> Function()? onNeedMore;
+  final Future<List<T>> Function()? onNeedMore;
   final int maxControllerCache;
   final int preloadAhead;
   final ScrollPhysics physics;
+  final void Function(T video, BetterPlayerController controller)? onEnterFullscreen;
 
   @override
-  State<VideoFeedView> createState() => _VideoFeedViewState();
+  State<VideoFeedView<T>> createState() => _VideoFeedViewState<T>();
 }
 
-class _VideoFeedViewState extends State<VideoFeedView>
+class _VideoFeedViewState<T extends BaseVideoItem> extends State<VideoFeedView<T>>
     with WidgetsBindingObserver {
-  late List<BaseVideoItem> _videos = widget.videos;
+  late List<T> _videos = widget.videos;
   final PreloadPageController _pageController = PreloadPageController();
   int _currentPage = 0;
   bool _isAppActive = true;
@@ -66,7 +68,7 @@ class _VideoFeedViewState extends State<VideoFeedView>
   }
 
   @override
-  void didUpdateWidget(covariant VideoFeedView oldWidget) {
+  void didUpdateWidget(covariant VideoFeedView<T> oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!listEquals(oldWidget.videos, widget.videos)) {
       _videos = widget.videos;
@@ -88,15 +90,17 @@ class _VideoFeedViewState extends State<VideoFeedView>
     }
   }
 
+  /// Initialize first video
   void _initializeFirstVideo() {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (_videos.isEmpty || !mounted) return;
       await _ensureControllersForPage(0);
-      _playVideoAtCurrentPage();
+      // _playVideoAtCurrentPage();
     });
   }
 
   bool _isHlsUrl(String url) => url.contains('.m3u8');
+  
   bool _isDashUrl(String url) => url.contains('.mpd');
 
   bool _isControllerInitialized(BetterPlayerController? controller) {
@@ -139,17 +143,27 @@ class _VideoFeedViewState extends State<VideoFeedView>
       final listener = _eventListeners.remove(videoId);
       final controller = _controllers.remove(videoId);
 
-      if (listener != null && controller != null) {
-        try {
-          controller.removeEventsListener(listener);
-        } catch (e) {
-          // Ignore
-        }
-      }
-
       if (controller != null) {
-        await Future<void>.delayed(const Duration(milliseconds: 50));
+        // Remove listener trước
+        if (listener != null) {
+          try {
+            controller.removeEventsListener(listener);
+          } catch (e) {
+            debugPrint('Remove events listener error: $e');
+          }
+        }
+
         try {
+          // Pause và clear buffer trước khi dispose
+          controller.pause();
+
+          // Clear video player controller để release memory
+          await controller.videoPlayerController?.seekTo(Duration.zero);
+          await controller.videoPlayerController?.pause();
+
+          // Đợi một chút để iOS release resources
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+
           controller.dispose();
           debugPrint('Disposed controller for $videoId');
         } catch (e) {
@@ -264,16 +278,29 @@ class _VideoFeedViewState extends State<VideoFeedView>
     }
     // If not initialized, the listener will play when ready
 
-    if (mounted) setState(() {});
+    // if (mounted) setState(() {});
   }
 
   BetterPlayerDataSource _createDataSource(String videoUrl) {
     final isHls = _isHlsUrl(videoUrl);
     final isDash = _isDashUrl(videoUrl);
 
-    final cacheConfig = (!isHls && !isDash)
-        ? BetterPlayerCacheConfiguration(useCache: false)
-        : null;
+    // Tắt cache để tránh memory leak trên iOS
+    // BetterPlayer cache giữ video trong memory ngay cả khi dispose
+    // const cacheConfig = BetterPlayerCacheConfiguration(
+    //     useCache: false,
+    //   );
+
+    // Tạo unique cache key từ URL
+    final cacheKey = videoUrl.hashCode.toString();
+
+    final cacheConfig = BetterPlayerCacheConfiguration(
+        useCache: true,
+        preCacheSize: 2 * 1024 * 1024,     // 2MB pre-cache
+        maxCacheSize: 30 * 1024 * 1024,    // 30MB max cache
+        maxCacheFileSize: 5 * 1024 * 1024, // 5MB per file
+        key: cacheKey,
+    );
 
     return BetterPlayerDataSource(
       BetterPlayerDataSourceType.network,
@@ -284,18 +311,18 @@ class _VideoFeedViewState extends State<VideoFeedView>
           : isDash
               ? BetterPlayerVideoFormat.dash
               : null,
-      // Buffer configuration for HLS streams
+      // Buffer configuration - giảm cho thiết bị RAM thấp
       bufferingConfiguration: const BetterPlayerBufferingConfiguration(
-        minBufferMs: 5000,           // 5 seconds minimum buffer
-        maxBufferMs: 60000,          // 60 seconds max buffer
-        bufferForPlaybackMs: 2500,   // Start playback after 2.5s buffered
-        bufferForPlaybackAfterRebufferMs: 5000, // After rebuffer, wait for 5s
+        minBufferMs: 2000,           // 2 seconds minimum buffer
+        maxBufferMs: 15000,          // 15 seconds max buffer (giảm từ 60s)
+        bufferForPlaybackMs: 1500,   // Start playback after 1.5s
+        bufferForPlaybackAfterRebufferMs: 3000,
       ),
     );
   }
 
   Future<BetterPlayerController?> _createController(
-    BaseVideoItem video, {
+    T video, {
     required bool autoPlay,
   }) async {
     try {
@@ -304,7 +331,7 @@ class _VideoFeedViewState extends State<VideoFeedView>
       final config = BetterPlayerConfiguration(
         autoPlay: autoPlay,
         looping: true,
-        aspectRatio: 16 / 9,
+        aspectRatio: 9/16,
         fit: BoxFit.contain,
         handleLifecycle: false,
         controlsConfiguration: const BetterPlayerControlsConfiguration(
@@ -376,11 +403,11 @@ class _VideoFeedViewState extends State<VideoFeedView>
           if (mounted && _playingVideoId == videoId && _controllers.containsKey(videoId)) {
             try {
               controller.play();
-              setState(() {});
+              // setState(() {});
             } catch (e) {
               debugPrint('Error playing after init: $e');
             }
-          }
+        }
         });
       }
     }
@@ -397,7 +424,7 @@ class _VideoFeedViewState extends State<VideoFeedView>
       if (event.betterPlayerEventType == BetterPlayerEventType.initialized) {
         debugPrint('Prefetched video $videoId is ready');
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) setState(() {});
+          // if (mounted) setState(() {});
         });
       }
     }
@@ -440,6 +467,7 @@ class _VideoFeedViewState extends State<VideoFeedView>
       debugPrint('Using ready controller for ${newVideo.id}');
       _playingVideoId = newVideo.id;
       try {
+        await existingController.seekTo(Duration.zero);
         existingController.play();
       } catch (e) {
         debugPrint('Error playing video: $e');
@@ -503,6 +531,9 @@ class _VideoFeedViewState extends State<VideoFeedView>
             key: ValueKey(item.id),
             controller: controller,
             videoId: item.id,
+            onEnterFullscreen: controller != null
+                ? () => widget.onEnterFullscreen?.call(item, controller)
+                : null,
           ),
         );
       },
