@@ -2,6 +2,7 @@ import 'package:awesome_video_player/awesome_video_player.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:preload_page_view/preload_page_view.dart';
+import 'package:tiktok/video_cache_service.dart';
 import 'package:tiktok/video_item.dart';
 import 'package:tiktok/video_optimize.dart';
 
@@ -277,46 +278,37 @@ class _VideoFeedViewState<T extends BaseVideoItem> extends State<VideoFeedView<T
       }
     }
     // If not initialized, the listener will play when ready
-
-    // if (mounted) setState(() {});
   }
 
-  BetterPlayerDataSource _createDataSource(String videoUrl) {
+  /// Tạo data source - dùng proxy cho video đang play, direct cho prefetch
+  BetterPlayerDataSource _createDataSource(String videoUrl, {bool useProxy = false}) {
     final isHls = _isHlsUrl(videoUrl);
     final isDash = _isDashUrl(videoUrl);
 
-    // Tắt cache để tránh memory leak trên iOS
-    // BetterPlayer cache giữ video trong memory ngay cả khi dispose
-    // const cacheConfig = BetterPlayerCacheConfiguration(
-    //     useCache: false,
-    //   );
+    // Chỉ dùng proxy khi video đang play VÀ proxy available
+    String playUrl = videoUrl;
+    if (useProxy && VideoCacheService.instance.shouldUseProxy()) {
+      playUrl = VideoCacheService.instance.getPlayUrl(videoUrl);
+    }
 
-    // Tạo unique cache key từ URL
-    final cacheKey = videoUrl.hashCode.toString();
-
-    final cacheConfig = BetterPlayerCacheConfiguration(
-        useCache: true,
-        preCacheSize: 2 * 1024 * 1024,     // 2MB pre-cache
-        maxCacheSize: 30 * 1024 * 1024,    // 30MB max cache
-        maxCacheFileSize: 5 * 1024 * 1024, // 5MB per file
-        key: cacheKey,
-    );
+    // Tắt BetterPlayer cache (dùng proxy cache thay thế)
+    const cacheConfig = BetterPlayerCacheConfiguration(useCache: false);
 
     return BetterPlayerDataSource(
       BetterPlayerDataSourceType.network,
-      videoUrl,
+      playUrl,
       cacheConfiguration: cacheConfig,
       videoFormat: isHls
           ? BetterPlayerVideoFormat.hls
           : isDash
               ? BetterPlayerVideoFormat.dash
               : null,
-      // Buffer configuration - giảm cho thiết bị RAM thấp
+      // Buffer configuration tối ưu cho RAM
       bufferingConfiguration: const BetterPlayerBufferingConfiguration(
-        minBufferMs: 2000,           // 2 seconds minimum buffer
-        maxBufferMs: 15000,          // 15 seconds max buffer (giảm từ 60s)
-        bufferForPlaybackMs: 1500,   // Start playback after 1.5s
-        bufferForPlaybackAfterRebufferMs: 3000,
+        minBufferMs: 1500,           // 1.5s minimum
+        maxBufferMs: 8000,           // 8s max buffer - giảm RAM
+        bufferForPlaybackMs: 1000,   // Start play sau 1s
+        bufferForPlaybackAfterRebufferMs: 2000,
       ),
     );
   }
@@ -326,7 +318,9 @@ class _VideoFeedViewState<T extends BaseVideoItem> extends State<VideoFeedView<T
     required bool autoPlay,
   }) async {
     try {
-      final dataSource = _createDataSource(video.videoUrl);
+      // Chỉ dùng proxy khi video đang play (autoPlay = true)
+      // Video prefetch dùng direct URL để không gây lag
+      final dataSource = _createDataSource(video.videoUrl, useProxy: autoPlay);
 
       final config = BetterPlayerConfiguration(
         autoPlay: autoPlay,
@@ -353,7 +347,7 @@ class _VideoFeedViewState<T extends BaseVideoItem> extends State<VideoFeedView<T
         }
       });
 
-      debugPrint('Created controller for ${video.id} (autoPlay: $autoPlay)');
+      debugPrint('Created controller for ${video.id} (autoPlay: $autoPlay, proxy: $autoPlay)');
       return controller;
     } catch (e) {
       debugPrint('Error creating controller: $e');
